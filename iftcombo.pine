@@ -1,0 +1,42 @@
+// author KIVANC @fr3762 on twitter
+// creator John EHLERS
+// 
+study("Inverse Fisher Transform COMBO", shorttitle="IFTCOMBO")
+STO = input(false, title="Show INVERSE FISHER TRANSFORM on STOCHASTIC Line?")
+RSI = input(false, title="Show INVERSE FISHER TRANSFORM on RSI Line?")
+CCI = input(true, title="Show INVERSE FISHER TRANSFORM on CCI Line?")
+MFI = input(false, title="Show INVERSE FISHER TRANSFORM on MFI Line?")
+//Average means: average value of all 4 inverse fisher trasformed indicators
+AVERAGE =  input(false, title="Show INVERSE FISHER TRANSFORM AVERAGE Line?")
+
+ccilength=input(5, "CCI Length")
+wmalength=input(9, title="Smoothing Length")
+v11=0.1*(cci(close, ccilength)/4)
+v21=wma(v11, wmalength)
+INV1=(exp(2*v21)-1)/(exp(2*v21)+1)
+rsilength=input(5, "RSI Length")
+v12=0.1*(rsi(close, rsilength)-50)
+v22=wma(v12,wmalength)
+INV2=(exp(2*v22)-1)/(exp(2*v22)+1)
+stochlength=input(5, "STOCH Length")
+v1=0.1*(stoch(close, high, low, stochlength)-50)
+v2=wma(v1, wmalength)
+INVLine=(exp(2*v2)-1)/(exp(2*v2)+1)
+//MFI
+mfilength=input(5, "MFI Length")
+source = hlc3
+up = sum(volume * (change(source) <= 0 ? 0 : source), mfilength)
+lo = sum(volume * (change(source) >= 0 ? 0 : source), mfilength)
+mfi = rsi(up, lo)
+v13=0.1*(mfi-50)
+v23=wma(v13, wmalength)
+INV3=(exp(2*v23)-1)/(exp(2*v23)+1)
+AVINV =  (INV1+INV2+INVLine+INV3)/4
+
+// plot(AVERAGE and AVINV ? AVINV : na, color=purple, linewidth=3, title="AVERAGE")
+// plot(STO and INVLine ? INVLine : na, color=blue, linewidth=1, title="STOCH")
+plot(CCI and INV1 ? INV1 : na, color=red, linewidth=3, title="CCIv2")
+// plot(RSI and INV2 ? INV2 : na, color=black, linewidth=2, title="RSI")
+// plot(MFI and INV3 ? INV3 : na, color=purple, linewidth=2, title="MFI")
+hline(0.5, color=red)
+hline(-0.5, color=green)
