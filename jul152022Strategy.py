@@ -247,6 +247,18 @@ class Jul152022Strategy(IStrategy):
         dataframe['BlackCat_Long']=np.where(qtpylib.crossed_above(dataframe['AMAValF'], dataframe['AMAValS']),"Long", "N/A")
         dataframe['BlackCat_Short']=np.where(qtpylib.crossed_below(dataframe['AMAValF'], dataframe['AMAValS']),"Short", "N/A")
         return dataframe
+
+    def calculateIFTComboIndicator(self, dataframe: DataFrame, metadata: dict)-> DataFrame:
+        #IFTCOMBO
+        ccilength = 5
+        wmalength = 9
+        dataframe['cci'] = ta.CCI(dataframe['high'], dataframe['low'], dataframe['close'], window=ccilength, constant=0.015, fillna=False)
+        dataframe['v11'] = (dataframe['cci'].divide(4)).multiply(0.1)
+        dataframe['v21'] = ta.WMA(dataframe['v11'], window=wmalength)
+        dataframe['result1'] = np.exp(dataframe['v21'].multiply(2))
+        dataframe['iftcombo'] = (dataframe['result1'].subtract(1)).divide(dataframe['result1'].add(1))
+        return dataframe
+    
     def informative_1h_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         # assert self.dp, "DataProvider is required for multiple timeframes."
         # # Get the informative pair
@@ -291,13 +303,14 @@ class Jul152022Strategy(IStrategy):
         # ------------------------------------
         dataframe = self.calulateFireflyIndicator(dataframe, metadata)
         dataframe = self.calculateBlackCatIndicator(dataframe, metadata)
+        dataframe = self.calculateIFTComboIndicator(dataframe, metadata)
 
         print("Orig Dataframe")
         with pd.option_context('display.max_rows', 30,
                        'display.max_columns', None,
                        'display.precision', 3,
                        ):
-            print(dataframe['fireflyHistogramColor'])
+            print(dataframe)
 
         # ADX
         dataframe['adx'] = ta.ADX(dataframe)
