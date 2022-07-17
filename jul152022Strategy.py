@@ -82,6 +82,10 @@ class Jul152022Strategy(IStrategy):
     short_rsi = IntParameter(low=51, high=100, default=70, space='sell', optimize=True, load=True)
     exit_short_rsi = IntParameter(low=1, high=50, default=30, space='buy', optimize=True, load=True)
 
+    PeriodF = 13
+    PeriodS = 55
+    EnableSmooth = False
+
     # Number of candles the strategy requires before producing valid signals
     startup_candle_count: int = 30
 
@@ -167,6 +171,7 @@ class Jul152022Strategy(IStrategy):
         if since is not None:
             res = source[-(since+1)]
         return res
+
     def informative_pairs(self):
         """
         Define additional, informative pair/interval combinations to be cached from the exchange.
@@ -210,6 +215,38 @@ class Jul152022Strategy(IStrategy):
         dataframe['fireflyHistogramColor']= dataframe['dc']
         return dataframe
     
+    def blackcat_AMA(self, Period, dataframe: DataFrame) -> DataFrame:
+        # Vars:
+        Fastest = 0.6667
+        Slowest = 0.0645
+        AMA = 0.00
+        dataframe['Price']=dataframe['hl2']
+        Price = dataframe['Price']
+        dataframe['Diff'] = np.absolute(Price - Price.shift(1).fillna(0.0))
+        dataframe['Index']=pd.DataFrame(list(range(len(Price.index))))
+        dataframe['Signal'] = np.absolute(Price - Price.shift(Period).fillna(0.0))
+        dataframe['Noise'] = np.add(dataframe['Diff'], Period)
+        dataframe['efRatio'] = dataframe['Signal'] / dataframe['Noise']
+        dataframe['Smooth'] = np.power(dataframe['efRatio'] * (Fastest - Slowest) + Slowest, 2)
+        dataframe['AdaptMA'] = pd.DataFrame(0.0, index=range(len(Price.index)), columns=range(1), dtype=np.float64)
+        dataframe['AMA'] = np.where(dataframe['Index']<= Period, Price, dataframe['AdaptMA'].shift(1).fillna(0.0) + dataframe['Smooth'] * (Price - dataframe['AdaptMA'].fillna(0.0).shift(1).fillna(0.0)))
+        return dataframe['AMA']
+    
+    def calculateBlackCatIndicator(self, dataframe: DataFrame, metadata: dict)-> DataFrame:
+        PeriodF = 13
+        PeriodS = 55
+        EnableSmooth = False
+        dataframe['hl2']=(dataframe['high']+dataframe['low'])/2
+        dataframe['hl2'] = dataframe['hl2'].fillna(0.0)
+        if EnableSmooth:
+            dataframe['AMAValF'] =  ta.LINEARREG(self.blackcat_AMA(PeriodF, dataframe, PeriodF, 0))
+            dataframe['AMAValS'] = ta.LINEARREG(self.blackcat_AMA(PeriodS, dataframe, PeriodS, 0))
+        else: 
+            dataframe['AMAValF'] =  self.blackcat_AMA(PeriodF, dataframe)
+            dataframe['AMAValS'] = self.blackcat_AMA(PeriodS, dataframe)
+        dataframe['BlackCat_Long']=np.where(qtpylib.crossed_above(dataframe['AMAValF'], dataframe['AMAValS']),"Long", "N/A")
+        dataframe['BlackCat_Short']=np.where(qtpylib.crossed_below(dataframe['AMAValF'], dataframe['AMAValS']),"Short", "N/A")
+        return dataframe
     def informative_1h_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         # assert self.dp, "DataProvider is required for multiple timeframes."
         # # Get the informative pair
@@ -253,7 +290,9 @@ class Jul152022Strategy(IStrategy):
         # Momentum Indicators
         # ------------------------------------
         dataframe = self.calulateFireflyIndicator(dataframe, metadata)
+        dataframe = self.calculateBlackCatIndicator(dataframe, metadata)
 
+        print("Orig Dataframe")
         with pd.option_context('display.max_rows', 30,
                        'display.max_columns', None,
                        'display.precision', 3,
