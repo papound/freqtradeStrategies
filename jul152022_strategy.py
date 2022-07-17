@@ -548,11 +548,14 @@ class Jul152022Strategy(IStrategy):
         
         conditionsLong.append(
             (
-                # Signal: RSI crosses above 30
-                (qtpylib.crossed_above(dataframe['rsi'], self.buy_rsi.value)) &
-                (dataframe['tema'] <= dataframe['bb_middleband']) &  # Guard: tema below BB middle
-                (dataframe['tema'] > dataframe['tema'].shift(1)) &  # Guard: tema is raising
-                (dataframe['rsi'] > 30) &
+                #1
+                () &
+                #2
+                (dataframe['open'] < dataframe['close'])
+                #3
+                #4
+                #5
+
                 (dataframe['volume'] > 0)  # Make sure Volume is not 0
             )
             # 'enter_long'] = 1
