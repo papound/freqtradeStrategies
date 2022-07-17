@@ -3,11 +3,11 @@
 # isort: skip_file
 # --- Do not remove these libs ---
 from asyncio import base_tasks
+from h11 import Data
 import numpy as np  # noqa
 import pandas as pd  # noqa
 from pandas import DataFrame
 from functools import reduce
-import math
 
 from freqtrade.strategy import (BooleanParameter, CategoricalParameter, DecimalParameter,
                                 IStrategy, IntParameter)
@@ -65,7 +65,7 @@ class Jul152022Strategy(IStrategy):
     # trailing_stop_positive_offset = 0.0  # Disabled / not configured
 
     # Optimal timeframe for the strategy.
-    timeframe = '5m'
+    timeframe = '1h'
     inf_1h = '1h'
 
     # Run "populate_indicators()" only for new candle.
@@ -82,9 +82,9 @@ class Jul152022Strategy(IStrategy):
     short_rsi = IntParameter(low=51, high=100, default=70, space='sell', optimize=True, load=True)
     exit_short_rsi = IntParameter(low=1, high=50, default=30, space='buy', optimize=True, load=True)
 
-    PeriodF = 13
+    PeriodF = 10
     PeriodS = 55
-    EnableSmooth = False
+    EnableSmooth = True
 
     # Number of candles the strategy requires before producing valid signals
     startup_candle_count: int = 30
@@ -191,26 +191,34 @@ class Jul152022Strategy(IStrategy):
         d=ema1-ema2
         return ema1+d
 
-    def ma(self, s: DataFrame, l, bt: bool) -> DataFrame:
-        d=np.where(np.array(bt) == False,ta.EMA(s,l),self.calc_zlema(s,l))
+    def ma(self, s: DataFrame, l, bt) -> DataFrame:
+        d=np.where(bt == False,ta.EMA(s,l),self.calc_zlema(s,l))
         return d
 
     def calulateFireflyIndicator(self, dataframe: DataFrame, metadata: dict)-> DataFrame:
         m=10 #Lookback Length
         n1=3 #Signal Smoothing
         a_s=False #Double smooth Osc
-        dataframe['v2']=(dataframe['high']+dataframe['low']+dataframe['close']*2)/4
-        dataframe['v3']=(self.ma(dataframe['v2'].fillna(0.0), n1, False))
-        dataframe['v4']=dataframe['v2'].fillna(0.0).std(axis=0, skipna=True)
-        dataframe['v5']=(dataframe['v2'].fillna(0.0)-dataframe['v3'].fillna(0.0))*100/np.where(dataframe['v4']==0,1,dataframe['v4'].fillna(0.0))
-        dataframe['v6']=self.ma(dataframe['v5'].fillna(0.0),n1, False)
-        dataframe['v7']=np.where(a_s, self.ma(dataframe['v6'].fillna(0.0), n1, False), dataframe['v6'].fillna(0.0))
-        dataframe['ww']=(self.ma(dataframe['v7'],m,False)+100)/2-4
-        dataframe['mm']=ta.MAX(dataframe['ww'].fillna(0.0), timeperiod=n1)
-        dataframe['wwmm_min']=np.minimum(dataframe['ww'].fillna(0.0), dataframe['mm'].fillna(0.0))
-        dataframe['wwmm_max']=np.maximum(dataframe['ww'].fillna(0.0),dataframe['mm'].fillna(0.0))
-        dataframe['d']=np.where(dataframe['ww'].fillna(0.0)>50, dataframe['wwmm_min'].fillna(0.0), np.where(dataframe['mm'].fillna(0.0)< 50, dataframe['wwmm_max'].fillna(0.0), None))
-        dataframe['dc']= np.where(dataframe['d'].fillna(0.0)>50, np.where(dataframe['d'].fillna(0.0)>dataframe['d'].fillna(0.0).shift(1), "green","orange"), np.where(dataframe['d'].fillna(0.0)<dataframe['d'].fillna(0.0).shift(1), "red", "orange"))
+        dataframe['bt'] = pd.DataFrame(False, index=range(len(dataframe.index)), columns=range(1), dtype=bool)
+        dataframe['v2']=((dataframe['high']+dataframe['low']+dataframe['close']*2)/4)
+        dataframe['v2']=dataframe['v2'].fillna(0.0)
+        dataframe['v3']=self.ma(dataframe['v2'], m, dataframe['bt'])
+        dataframe['v3']=dataframe['v3'].fillna(0.0)
+        dataframe['v4']=ta.STDDEV(dataframe['v2'],timeperiod=m)
+        dataframe['v4']=dataframe['v4'].fillna(0.0)
+        dataframe['v5']=(dataframe['v2']-dataframe['v3'])*100/np.where(dataframe['v4']==0.0,1.0,dataframe['v4'])
+        dataframe['v5']=dataframe['v5'].fillna(0.0)
+        dataframe['v6']=self.ma(dataframe['v5'],n1, dataframe['bt'])
+        dataframe['v6']=dataframe['v6'].fillna(0.0)
+        dataframe['v7']=np.where(a_s, self.ma(dataframe['v6'], n1, dataframe['bt']), dataframe['v6'])
+        dataframe['ww']=(self.ma(dataframe['v7'],m,dataframe['bt'])+100)/2-4
+        dataframe['ww'] = dataframe['ww'].fillna(0.0)
+        dataframe['mm']=ta.MAX(dataframe['ww'], timeperiod=n1)
+        dataframe['mm']=dataframe['mm'].fillna(0.0)
+        dataframe['wwmm_min']=np.minimum(dataframe['ww'], dataframe['mm'])
+        dataframe['wwmm_max']=np.maximum(dataframe['ww'],dataframe['mm'])
+        dataframe['d']=np.where(dataframe['ww']>50, dataframe['wwmm_min'], np.where(dataframe['mm']< 50, dataframe['wwmm_max'], 0.0))
+        dataframe['dc']= np.where(dataframe['d']>50, np.where(dataframe['d']>dataframe['d'].shift(1), 1.0,0.0), np.where(dataframe['d']<dataframe['d'].shift(1), -1.0, 0.0))
         dataframe['fireflyHistogramValue']= dataframe['d']
         dataframe['fireflyHistogramColor']= dataframe['dc']
         return dataframe
@@ -244,8 +252,7 @@ class Jul152022Strategy(IStrategy):
         else: 
             dataframe['AMAValF'] =  self.blackcat_AMA(PeriodF, dataframe)
             dataframe['AMAValS'] = self.blackcat_AMA(PeriodS, dataframe)
-        dataframe['BlackCat_Long']=np.where(qtpylib.crossed_above(dataframe['AMAValF'], dataframe['AMAValS']),"Long", "N/A")
-        dataframe['BlackCat_Short']=np.where(qtpylib.crossed_below(dataframe['AMAValF'], dataframe['AMAValS']),"Short", "N/A")
+        dataframe['BlackCat_Status']=np.where(qtpylib.crossed_above(dataframe['AMAValF'], dataframe['AMAValS']),"Long", np.where(qtpylib.crossed_below(dataframe['AMAValF'], dataframe['AMAValS']),"Short", "N/A"))
         return dataframe
 
     def calculateIFTComboIndicator(self, dataframe: DataFrame, metadata: dict)-> DataFrame:
@@ -253,10 +260,58 @@ class Jul152022Strategy(IStrategy):
         ccilength = 5
         wmalength = 9
         dataframe['cci'] = ta.CCI(dataframe['high'], dataframe['low'], dataframe['close'], window=ccilength, constant=0.015, fillna=False)
-        dataframe['v11'] = (dataframe['cci'].divide(4)).multiply(0.1)
+        dataframe['v11'] = (dataframe['cci']/4)*0.1
         dataframe['v21'] = ta.WMA(dataframe['v11'], window=wmalength)
-        dataframe['result1'] = np.exp(dataframe['v21'].multiply(2))
-        dataframe['iftcombo'] = (dataframe['result1'].subtract(1)).divide(dataframe['result1'].add(1))
+        dataframe['result1'] = np.exp(dataframe['v21']*2)
+        dataframe['iftcombo'] = (dataframe['result1']-1)/(dataframe['result1']+1)
+        dataframe['iftcombo'] = dataframe['iftcombo'].fillna(0.0)
+        return dataframe
+
+    #HARSI
+    def f_zrsi(self, dataframe: DataFrame, length)-> DataFrame:
+        d=ta.RSI(dataframe, timeperiod=length)
+        return d
+
+    def f_rsi(self, _source: DataFrame, _length, _mode )-> DataFrame:
+        _source['_zrsi'] = self.f_zrsi( _source, _length)
+        _source['_smoothed']=np.where(np.isnan(_source['_smoothed'].shift(1)), _source['_zrsi'], (_source['_smoothed'].shift(1)+_source['_zrsi'])/2)
+        if _mode :
+            return _source['_smoothed']
+        else:
+            return _source['_zrsi']
+
+    #RSI Heikin-Ashi generation function
+    def f_rsiHeikinAshi(self, dataframe: DataFrame, _length ) -> DataFrame:
+        i_smoothing = 5
+        dataframe['_closeRSI'] = self.f_zrsi(dataframe['ha_close'], _length)
+        dataframe['_openRSI'] = np.where(np.isnan(dataframe['_closeRSI'].shift(1)), dataframe['_closeRSI'], dataframe['_closeRSI'].shift(1))
+        dataframe['_highRSI_raw'] = self.f_zrsi(dataframe['ha_high'], _length)
+        dataframe['_lowRSI_raw'] = self.f_zrsi(dataframe['ha_low'], _length)
+        dataframe['_highRSI']=np.maximum(dataframe['_highRSI_raw'],dataframe['_lowRSI_raw'])
+        dataframe['_lowRSI']=np.minimum(dataframe['_highRSI_raw'],dataframe['_lowRSI_raw'])
+        dataframe['_close'] = ( dataframe['_openRSI'] + dataframe['_highRSI'] + dataframe['_lowRSI'] + dataframe['_closeRSI'] ) / 4
+        dataframe['_open'] = pd.DataFrame(None, index=range(len(dataframe.index)), columns=range(1), dtype=np.float64)
+        dataframe['_open'] = np.where(np.isnan(dataframe['_open'].shift(i_smoothing)),(dataframe['_openRSI'] + dataframe['_closeRSI'])/2, ( ( dataframe['_open'].shift(1)*i_smoothing ) + dataframe['_close'].shift(1) ) / (i_smoothing+1))
+        dataframe['_high']= np.maximum(dataframe['_highRSI'], np.maximum( dataframe['_open'], dataframe['_close']))
+        dataframe['_low']= np.minimum( dataframe['_lowRSI'], np.minimum( dataframe['_open'], dataframe['_close']))
+        dataframe['f_rsiHeikinAshi_bar_color']=np.where(dataframe['_close'] > dataframe['_open'], 1.0, -1.0)
+        return dataframe
+
+    def calculateHARSIIndicator(self, dataframe: DataFrame, metadata: dict)-> DataFrame:
+        i_lenHARSI = 14
+        dataframe = self.f_rsiHeikinAshi(dataframe, i_lenHARSI)
+        return dataframe
+
+    def calculateLFSIndicator(self, dataframe: DataFrame, metadata: dict)-> DataFrame:
+        longlen=100
+        keylen=80
+        shortlen=50
+        # longema = ta.ema(src, longlen)
+        # shortema = ta.ema(src, shortlen)
+        # keyema= ta.ema(src,keylen)
+        dataframe['long_ema'] = ta.EMA(dataframe, timeperiod=longlen)
+        dataframe['short_ema'] = ta.EMA(dataframe, timeperiod=shortlen)
+        dataframe['key_ema'] = ta.EMA(dataframe, timeperiod=keylen)
         return dataframe
     
     def informative_1h_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
@@ -299,18 +354,29 @@ class Jul152022Strategy(IStrategy):
         # The indicators for the normal (5m) timeframe
         # dataframe = self.normal_tf_indicators(dataframe, metadata)
 
+        # # Chart type
+        # # ------------------------------------
+        # Heikin Ashi Strategy
+        heikinashi = qtpylib.heikinashi(dataframe)
+        dataframe['ha_open'] = heikinashi['open']
+        dataframe['ha_close'] = heikinashi['close']
+        dataframe['ha_high'] = heikinashi['high']
+        dataframe['ha_low'] = heikinashi['low']
+
         # Momentum Indicators
         # ------------------------------------
         dataframe = self.calulateFireflyIndicator(dataframe, metadata)
         dataframe = self.calculateBlackCatIndicator(dataframe, metadata)
         dataframe = self.calculateIFTComboIndicator(dataframe, metadata)
+        dataframe = self.calculateHARSIIndicator(dataframe, metadata)
+        dataframe = self.calculateLFSIndicator(dataframe, metadata)
 
-        print("Orig Dataframe")
-        with pd.option_context('display.max_rows', 30,
-                       'display.max_columns', None,
-                       'display.precision', 3,
-                       ):
-            print(dataframe)
+        # print("Orig Dataframe")
+        # with pd.option_context('display.max_rows', 30,
+        #                'display.max_columns', None,
+        #                'display.precision', 3,
+        #                ):
+        #     print(dataframe)
 
         # ADX
         dataframe['adx'] = ta.ADX(dataframe)
@@ -496,15 +562,6 @@ class Jul152022Strategy(IStrategy):
         # # Three Inside Up/Down: values [0, -100, 100]
         # dataframe['CDL3INSIDE'] = ta.CDL3INSIDE(dataframe) # values [0, -100, 100]
 
-        # # Chart type
-        # # ------------------------------------
-        # # Heikin Ashi Strategy
-        # heikinashi = qtpylib.heikinashi(dataframe)
-        # dataframe['ha_open'] = heikinashi['open']
-        # dataframe['ha_close'] = heikinashi['close']
-        # dataframe['ha_high'] = heikinashi['high']
-        # dataframe['ha_low'] = heikinashi['low']
-
         # Retrieve best bid and best ask from the orderbook
         # ------------------------------------
         """
@@ -533,15 +590,14 @@ class Jul152022Strategy(IStrategy):
         4.    HARSI  RSI Over Lay  Above Median Line (Default Value = 0 )   / Bar Green / RSI Over Lay  Value > 20 (OB = Over Bought : Default Value = 20)
         5.    IFTCOMBO > 0.60
         Stop Loss   = Swing Low 
-        Take Profit
-        TP 1  = 30%  RR 1.5-3 /  TP2  50%
-        1.     Green Candle
-        2.    HARSI  : Bar green / RSI Over Lay (Yellow Line)   > 35 (OB Extreme = Overbought Extreme : Default Value = 30)
-        3.    Firefly    Histogram  Value  Above middle > 50   , Histogram Show Green
-        4.    IFTCOMBO > 0.60
 
-        Take Profit & Close Position
-        Green Line  Cross Down   White Line  (LFS)  /      Yellow Line (AMAValF)  Cross Down  Purple Line (AMAValS)   >> Blackcat
+        Short  / Sell Condition
+        1.    Green Line  Cross Up   White Line  >>LFS    /   Yellow Line (AMAValF)  Cross Down Purple Line (AMAValS)   >> Blackcat
+        2.    Red Candle
+        3.    Firefly  >>  Histogram  Value  Below middle < 50   , Histogram Show Red
+        4.    HARSI  RSI Over Lay  Below Median Line (Default Value = 0 )  / Bar RED / RSI Over Lay  Value  <  -20 (OS = Over Sell : Default Value = -20)
+        6.    IFTCOMBO <  -0.60
+        Stop Loss   = Swing H
         '''
         conditionsLong = []
         conditionsShort = []
@@ -549,13 +605,18 @@ class Jul152022Strategy(IStrategy):
         conditionsLong.append(
             (
                 #1
-                () &
+                (qtpylib.crossed_above(dataframe['short_ema'], dataframe['key_ema']) | qtpylib.crossed_above(dataframe['AMAValF'], dataframe['AMAValS'])) &
                 #2
-                (dataframe['open'] < dataframe['close'])
+                (dataframe['open'] < dataframe['close']) &
                 #3
+                (dataframe['fireflyHistogramColor'] == 1.0) &
+                (dataframe['fireflyHistogramValue'] > 50) &
                 #4
+                (dataframe['_closeRSI'] > 20) &
+                (dataframe['f_rsiHeikinAshi_bar_color'] == 1.0) &
                 #5
-
+                (dataframe['iftcombo'] > 0.6) &
+                #etc
                 (dataframe['volume'] > 0)  # Make sure Volume is not 0
             )
             # 'enter_long'] = 1
@@ -570,11 +631,19 @@ class Jul152022Strategy(IStrategy):
 
         conditionsShort.append(
                 (
-                    # Signal: RSI crosses above 70
-                    (qtpylib.crossed_above(dataframe['rsi'], self.short_rsi.value)) &
-                    (dataframe['tema'] > dataframe['bb_middleband']) &  # Guard: tema above BB middle
-                    (dataframe['tema'] < dataframe['tema'].shift(1)) &  # Guard: tema is falling
-                    (dataframe['rsi'] < 30) &
+                    #1
+                    (qtpylib.crossed_below(dataframe['short_ema'], dataframe['key_ema']) | qtpylib.crossed_below(dataframe['AMAValF'], dataframe['AMAValS'])) &
+                    #2
+                    (dataframe['open'] > dataframe['close']) &
+                    #3
+                    (dataframe['fireflyHistogramColor'] == -1.0) &
+                    (dataframe['fireflyHistogramValue'] < 50) &
+                    #4
+                    (dataframe['_closeRSI'] < -20) &
+                    (dataframe['f_rsiHeikinAshi_bar_color'] == -1.0) &
+                    #5
+                    (dataframe['iftcombo'] < -0.6) &
+                    #etc
                     (dataframe['volume'] > 0)  # Make sure Volume is not 0
                 ),
         )
@@ -596,14 +665,17 @@ class Jul152022Strategy(IStrategy):
         :return: DataFrame with exit columns populated
         """
         '''
-        Short  / Sell Condition
-        1.    Green Line  Cross Up   White Line  >>LFS    /   Yellow Line (AMAValF)  Cross Down Purple Line (AMAValS)   >> Blackcat
-        2.    Red Candle
-        3.    Firefly  >>  Histogram  Value  Below middle < 50   , Histogram Show Red
-        4.    HARSI  RSI Over Lay  Below Median Line (Default Value = 0 )  / Bar RED / RSI Over Lay  Value  <  -20 (OS = Over Sell : Default Value = -20)
-        6.    IFTCOMBO <  -0.60
-        Stop Loss   = Swing H
-        Take Profit
+        Take Profit - Long
+        TP 1  = 30%  RR 1.5-3 /  TP2  50%
+        1.     Green Candle
+        2.    HARSI  : Bar green / RSI Over Lay (Yellow Line)   > 35 (OB Extreme = Overbought Extreme : Default Value = 30)
+        3.    Firefly    Histogram  Value  Above middle > 50   , Histogram Show Green
+        4.    IFTCOMBO > 0.60
+
+        Take Profit & Close Position
+        Green Line  Cross Down   White Line  (LFS)  /      Yellow Line (AMAValF)  Cross Down  Purple Line (AMAValS)   >> Blackcat
+        
+        Take Profit - Short
         TP 1  = 30%  RR 1.5-3 /  TP2  50%
         1.    Red Candle
         2.    HARSI : Bar Red / RSI Over Lay (Yellow Line)   < 35 (OS Extreme = OverSell Extreme : Default Value =  -30)
@@ -615,11 +687,9 @@ class Jul152022Strategy(IStrategy):
         '''
         dataframe.loc[
             (
-                # Signal: RSI crosses above 70
-                (qtpylib.crossed_above(dataframe['rsi'], self.sell_rsi.value)) &
-                (dataframe['tema'] > dataframe['bb_middleband']) &  # Guard: tema above BB middle
-                (dataframe['tema'] < dataframe['tema'].shift(1)) &  # Guard: tema is falling
-                (dataframe['rsi'] > 70) &
+                #1
+                (qtpylib.crossed_below(dataframe['short_ema'], dataframe['key_ema']) | qtpylib.crossed_below(dataframe['AMAValF'], dataframe['AMAValS'])) &
+                #etc
                 (dataframe['volume'] > 0)  # Make sure Volume is not 0
             ),
 
@@ -627,12 +697,9 @@ class Jul152022Strategy(IStrategy):
 
         dataframe.loc[
             (
-                # Signal: RSI crosses above 30
-                (qtpylib.crossed_above(dataframe['rsi'], self.exit_short_rsi.value)) &
-                # Guard: tema below BB middle
-                (dataframe['tema'] <= dataframe['bb_middleband']) &
-                (dataframe['tema'] > dataframe['tema'].shift(1)) &  # Guard: tema is raising
-                (dataframe['rsi'] < 70) &
+                #1
+                (qtpylib.crossed_above(dataframe['short_ema'], dataframe['key_ema']) | qtpylib.crossed_above(dataframe['AMAValF'], dataframe['AMAValS'])) &
+                #etc
                 (dataframe['volume'] > 0)  # Make sure Volume is not 0
             ),
             'exit_short'] = 1

@@ -1,0 +1,128 @@
+//@version=5
+indicator(title="Leonidas Trend Following System", shorttitle="LFS", overlay=true, timeframe="", timeframe_gaps=true)
+
+src = close
+//Inputs
+keylen = input.int(55, minval=1, title="Key EMA")
+longlen = input.int(100, minval=1, title="Long term EMA")
+shortlen = input.int(21, minval=1, title="Short term EMA")
+showbands=input.bool(false,title="Show Bands")
+showcycletop=input.bool(false,title="Show cycle top")
+showlongema=input.bool(false,title="Show Long Term EMA")
+
+//EXPANSION
+bear = input(color.red, title = "Bear Color")
+bull = input(color.aqua, title = "Bull Color")
+neutral = input(color.rgb(255,255,0,0), title = "Neutral Color")
+stepn = input(21, title = "Max Gradient Steps")
+
+f_c_gradientAdvDecPro(_source, _center, _steps, _c_bearWeak, _c_bearStrong, _c_bullWeak, _c_bullStrong) =>
+    var float _qtyAdvDec = 0.
+    var float _maxSteps  = math.max(1, _steps)
+    bool  _xUp     = ta.crossover(_source, _center)
+    bool  _xDn     = ta.crossunder(_source, _center)
+    float _chg     = ta.change(_source)
+    bool  _up      = _chg > 0
+    bool  _dn      = _chg < 0
+    bool  _srcBull = _source > _center
+    bool  _srcBear = _source < _center
+    _qtyAdvDec := 
+      _srcBull ? _xUp ? 1 : _up ? math.min(_maxSteps, _qtyAdvDec + 1) : _dn ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec :
+      _srcBear ? _xDn ? 1 : _dn ? math.min(_maxSteps, _qtyAdvDec + 1) : _up ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec : _qtyAdvDec
+    var color _return = na
+    _return := 
+      _srcBull ? color.from_gradient(_qtyAdvDec, 1, _maxSteps, _c_bullWeak, _c_bullStrong) : 
+      _srcBear ? color.from_gradient(_qtyAdvDec, 1, _maxSteps, _c_bearWeak, _c_bearStrong) : _return
+
+
+
+
+ma(_type, _src, _len) =>
+    if _type == "DEMA"
+        2 * ta.ema(_src, _len) - ta.ema(ta.ema(_src, _len), _len)
+    else if _type == "EMA"
+        ta.ema(_src, _len)
+    else if _type == "HMA"
+        ta.wma(2 * ta.wma(_src, _len / 2) - ta.wma(_src, _len), math.round(math.sqrt(_len)))
+    else if _type == "LSMA"
+        3 * ta.wma(_src, _len) - 2 * ta.sma(_src, _len)
+    else if _type == "MA"
+        ta.sma(_src, _len)
+    else if _type == "RMA"
+        ta.rma(_src, _len)
+    else if _type == "SMA"
+        smma = 0.0
+        smma := na(smma[1]) ? ta.sma(_src, _len) : (smma[1] * (_len - 1) + _src) / _len
+        smma
+    else if _type == "SWMA"
+        ta.swma(_src)
+    else if _type == "TEMA"
+        3 * ta.ema(_src, _len) - 3 * ta.ema(ta.ema(_src, _len), _len) + ta.ema(ta.ema(ta.ema(_src, _len), _len), _len)
+    else if _type == "TMA"
+        ta.swma(ta.wma(_src, _len))
+    else if _type == "VWMA"
+        ta.vwma(_src, _len)
+    else if _type == "WMA"
+        ta.wma(_src, _len)
+
+ma_prediction(_type, _src, _period, _offset) =>
+    (ma(_type, _src, _period - _offset) * (_period - _offset) + _src * _offset) / _period
+
+
+longema = ta.ema(src, longlen)
+shortema = ta.ema(src, shortlen)
+keyema= ta.ema(src,keylen)
+
+xSMA1 = ta.sma(close, 350)*2
+xSMA5 = ta.sma(close, 111)
+xSMA6 = ta.sma(close, 111)*2
+
+keyemapredictor_1 = ma_prediction("EMA", close, keylen, 1)
+keyemapredictor_2 = ma_prediction("EMA", close, keylen, 2)
+keyemapredictor_3 = ma_prediction("EMA", close, keylen, 3)
+keyemapredictor_4 = ma_prediction("EMA", close, keylen, 4)
+keyemapredictor_5 = ma_prediction("EMA", close, keylen, 5)
+
+
+longemapredictor_1 = ma_prediction("EMA", close, longlen, 1)
+longemapredictor_2 = ma_prediction("EMA", close, longlen, 2)
+longemapredictor_3 = ma_prediction("EMA", close, longlen, 3)
+longemapredictor_4 = ma_prediction("EMA", close, longlen, 4)
+longemapredictor_5 = ma_prediction("EMA", close, longlen, 5)
+
+shortemapredictor_1 = ma_prediction("EMA", close, shortlen, 1)
+shortemapredictor_2 = ma_prediction("EMA", close, shortlen, 2)
+shortemapredictor_3 = ma_prediction("EMA", close, shortlen, 3)
+shortemapredictor_4 = ma_prediction("EMA", close, shortlen, 4)
+shortemapredictor_5 = ma_prediction("EMA", close, shortlen, 5)
+
+trendcolor = f_c_gradientAdvDecPro(keyema, ta.ema(keyema,3), stepn , neutral, bear, neutral, bull) 
+
+p2=plot(shortema, title="Short Term EMA", color=color.green,linewidth=2)
+p1=plot(keyema, title="Key EMA", color=color.white,linewidth=3)
+p3=plot(showlongema?longema:na, title="Long Term EMA", color=color.aqua,linewidth=1,style=plot.style_cross)
+
+plot(keyemapredictor_1,color=color.white,linewidth=2,style=plot.style_cross,offset=1,show_last=1)
+plot(keyemapredictor_2,color=color.white,linewidth=2,style=plot.style_cross,offset=2,show_last=1)
+plot(keyemapredictor_3,color=color.white,linewidth=2,style=plot.style_cross,offset=3,show_last=1)
+plot(keyemapredictor_4,color=color.white,linewidth=2,style=plot.style_cross,offset=4,show_last=1)
+plot(keyemapredictor_5,color=color.white,linewidth=2,style=plot.style_cross,offset=5,show_last=1)
+
+plot(showlongema?longemapredictor_1:na,color=color.aqua,linewidth=2,style=plot.style_cross,offset=1,show_last=1)
+plot(showlongema?longemapredictor_2:na,color=color.aqua,linewidth=2,style=plot.style_cross,offset=2,show_last=1)
+plot(showlongema?longemapredictor_3:na,color=color.aqua,linewidth=2,style=plot.style_cross,offset=3,show_last=1)
+plot(showlongema?longemapredictor_4:na,color=color.aqua,linewidth=2,style=plot.style_cross,offset=4,show_last=1)
+plot(showlongema?longemapredictor_5:na,color=color.aqua,linewidth=2,style=plot.style_cross,offset=5,show_last=1)
+
+plot(shortemapredictor_1,color=color.green,linewidth=2,style=plot.style_cross,offset=1,show_last=1)
+plot(shortemapredictor_2,color=color.green,linewidth=2,style=plot.style_cross,offset=2,show_last=1)
+plot(shortemapredictor_3,color=color.green,linewidth=2,style=plot.style_cross,offset=3,show_last=1)
+plot(shortemapredictor_4,color=color.green,linewidth=2,style=plot.style_cross,offset=4,show_last=1)
+plot(shortemapredictor_5,color=color.green,linewidth=2,style=plot.style_cross,offset=5,show_last=1)
+
+plot(showbands?xSMA6:na, title="Top Band", color=color.orange,linewidth=3,style=plot.style_line)
+plot(showbands?xSMA5/2:na, title="Bottom Band", color=color.green,linewidth=3,style=plot.style_line)
+crosscolor= ta.crossover(xSMA5,xSMA1)?color.yellow:na
+fill(p1,p2,color=color.new(trendcolor,40))
+fill(p1,p3,color=color.new(trendcolor,80))
+bgcolor(showcycletop?crosscolor:na)
