@@ -197,14 +197,15 @@ class Jul152022Strategy(IStrategy):
         dataframe['v2']=(dataframe['high']+dataframe['low']+dataframe['close']*2)/4
         dataframe['v3']=(self.ma(dataframe['v2'].fillna(0.0), n1, False))
         dataframe['v4']=dataframe['v2'].fillna(0.0).std(axis=0, skipna=True)
-        dataframe['v5']=(dataframe['v2'].fillna(0.0)-dataframe['v3'].fillna(0.0))*100/np.where(dataframe['v4']==0,1,dataframe['v4'])
-        dataframe['v6']=self.ma(dataframe['v5'],n1, False)
-        dataframe['v7']=np.where(a_s, self.ma(dataframe['v6'], n1, False), dataframe['v6'])
+        dataframe['v5']=(dataframe['v2'].fillna(0.0)-dataframe['v3'].fillna(0.0))*100/np.where(dataframe['v4']==0,1,dataframe['v4'].fillna(0.0))
+        dataframe['v6']=self.ma(dataframe['v5'].fillna(0.0),n1, False)
+        dataframe['v7']=np.where(a_s, self.ma(dataframe['v6'].fillna(0.0), n1, False), dataframe['v6'].fillna(0.0))
         dataframe['ww']=(self.ma(dataframe['v7'],m,False)+100)/2-4
-        dataframe['wwmm_min']=np.minimum(dataframe['ww'], dataframe['mm'])
-        dataframe['wwmm_max']=np.maximum(dataframe['ww'],dataframe['mm'])
-        dataframe['d']=np.where(dataframe['ww']>50, dataframe['wwmm_min'], np.where(dataframe['mm']< 50, dataframe['wwmm_max'], None))
-        dataframe['dc']= np.where(dataframe['d']>50, np.where(dataframe['d']>dataframe['d'].shift(1), "green","orange"), np.where(dataframe['d']<dataframe['d'].shift(1), "red", "orange"))
+        dataframe['mm']=ta.MAX(dataframe['ww'].fillna(0.0), timeperiod=n1)
+        dataframe['wwmm_min']=np.minimum(dataframe['ww'].fillna(0.0), dataframe['mm'].fillna(0.0))
+        dataframe['wwmm_max']=np.maximum(dataframe['ww'].fillna(0.0),dataframe['mm'].fillna(0.0))
+        dataframe['d']=np.where(dataframe['ww'].fillna(0.0)>50, dataframe['wwmm_min'].fillna(0.0), np.where(dataframe['mm'].fillna(0.0)< 50, dataframe['wwmm_max'].fillna(0.0), None))
+        dataframe['dc']= np.where(dataframe['d'].fillna(0.0)>50, np.where(dataframe['d'].fillna(0.0)>dataframe['d'].fillna(0.0).shift(1), "green","orange"), np.where(dataframe['d'].fillna(0.0)<dataframe['d'].fillna(0.0).shift(1), "red", "orange"))
         dataframe['fireflyHistogramValue']= dataframe['d']
         dataframe['fireflyHistogramColor']= dataframe['dc']
         return dataframe
