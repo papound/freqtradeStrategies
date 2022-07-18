@@ -3,6 +3,7 @@
 # isort: skip_file
 # --- Do not remove these libs ---
 from asyncio import base_tasks
+import imp
 from h11 import Data
 import numpy as np  # noqa
 import pandas as pd  # noqa
@@ -16,6 +17,8 @@ from freqtrade.strategy import (BooleanParameter, CategoricalParameter, DecimalP
 # Add your lib to import here
 import talib.abstract as ta
 import freqtrade.vendor.qtpylib.indicators as qtpylib
+import datetime
+from typing import Optional
 
 
 # This class is a sample. Feel free to customize it.
@@ -87,7 +90,7 @@ class Jul152022Strategy(IStrategy):
     EnableSmooth = True
 
     # Number of candles the strategy requires before producing valid signals
-    startup_candle_count: int = 30
+    startup_candle_count: int = 100
 
     # Optional order type mapping.
     order_types = {
@@ -137,6 +140,29 @@ class Jul152022Strategy(IStrategy):
     Take Profit & Close Position
     1.            Green Line  Cross Down   White Line  (LFS)
     '''
+
+    max_leverage = 25.0
+    #Set Leverage
+    def leverage(self, pair: str, current_time: datetime, current_rate: float,
+                 proposed_leverage: float, max_leverage: float, entry_tag: Optional[str], side: str,
+                 **kwargs) -> float:
+        
+        """
+        Customize leverage for each new trade. This method is only called in futures mode.
+
+        :param pair: Pair that's currently analyzed
+        :param current_time: datetime object, containing the current datetime
+        :param current_rate: Rate, calculated based on pricing settings in exit_pricing.
+        :param proposed_leverage: A leverage proposed by the bot.
+        :param max_leverage: Max leverage allowed on this pair
+        :param entry_tag: Optional entry_tag (buy_tag) if provided with the buy signal.
+        :param side: 'long' or 'short' - indicating the direction of the proposed trade
+        :return: A leverage amount, which is between 1.0 and max_leverage.
+        """
+        if side=='long':
+            return 1.0
+        else:
+            return 50.0
 
     def na(self, val):
         return val != val
@@ -625,8 +651,8 @@ class Jul152022Strategy(IStrategy):
         if conditionsLong:
             dataframe.loc[
                 reduce(lambda x, y: x | y, conditionsLong),
-                'enter_long'
-            ] = 1
+                ['enter_long', 'enter_tag']
+            ] = (1, 'enter_long')
 
 
         conditionsShort.append(
@@ -651,8 +677,8 @@ class Jul152022Strategy(IStrategy):
         if conditionsShort:
             dataframe.loc[
                 reduce(lambda x, y: x | y, conditionsShort),
-                'enter_short'
-            ] = 1
+                ['enter_short', 'enter_tag']
+            ] = (1, 'enter_short')
             # 'enter_short'] = 1
 
         return dataframe
@@ -693,7 +719,7 @@ class Jul152022Strategy(IStrategy):
                 (dataframe['volume'] > 0)  # Make sure Volume is not 0
             ),
 
-            'exit_long'] = 1
+            ['exit_long', 'exit_tag']] = (1, 'exit_long')
 
         dataframe.loc[
             (
@@ -702,6 +728,6 @@ class Jul152022Strategy(IStrategy):
                 #etc
                 (dataframe['volume'] > 0)  # Make sure Volume is not 0
             ),
-            'exit_short'] = 1
+           ['exit_short', 'exit_tag']] = (1, 'exit_short')
 
         return dataframe
